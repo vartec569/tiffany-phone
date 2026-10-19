@@ -9,26 +9,26 @@ if not exist node_modules (
     call npm install
 )
 
-REM Password & token: dipakai dari file kalau ada (.tp-pass / .tp-token),
-REM kalau belum ada ditanya sekali lalu disimpan. Hapus file-nya untuk ganti.
-if "%APP_PASSWORD%"=="" (
-    if exist ".tp-pass" (
-        set /p APP_PASSWORD=<".tp-pass"
-        echo (password tersimpan dipakai)
-    ) else (
-        set /p APP_PASSWORD=Masukkan password HP:
-    )
+REM Password & token: dipakai dari file kalau ada, kalau belum ada ditanya
+REM sekali lalu disimpan. Hapus .tp-pass / .tp-token untuk ganti.
+if not "%APP_PASSWORD%"=="" goto havepw
+if exist ".tp-pass" (
+    set /p APP_PASSWORD=<".tp-pass"
+    echo password tersimpan dipakai
+) else (
+    set /p APP_PASSWORD=Masukkan password HP:
 )
+:havepw
 if not "%APP_PASSWORD%"=="" echo %APP_PASSWORD%>.tp-pass
 
-if "%TIFFANY_TOKEN%"=="" (
-    if exist ".tp-token" (
-        set /p TIFFANY_TOKEN=<".tp-token"
-        echo (token Tiffany tersimpan dipakai)
-    ) else (
-        set /p TIFFANY_TOKEN=Masukkan token Tiffany [kosongkan = API nonaktif]:
-    )
+if not "%TIFFANY_TOKEN%"=="" goto havetok
+if exist ".tp-token" (
+    set /p TIFFANY_TOKEN=<".tp-token"
+    echo token Tiffany tersimpan dipakai
+) else (
+    set /p TIFFANY_TOKEN=Masukkan token Tiffany, kosongkan = API nonaktif:
 )
+:havetok
 if not "%TIFFANY_TOKEN%"=="" echo %TIFFANY_TOKEN%>.tp-token
 
 if "%APP_PASSWORD%"=="" (
