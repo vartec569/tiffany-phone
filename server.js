@@ -579,7 +579,7 @@ function init(){
     if (dd.classList.contains('show') && !e.target.closest('#inputBox')) dd.classList.remove('show');
   });
 }
-$('pw').addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); doLogin(); } });
+
 </script></body></html>`;
 
 // ============ HTTP SERVER ============
