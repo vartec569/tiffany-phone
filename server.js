@@ -444,13 +444,14 @@ function toast(msg){
 function showLogin(){ $('login').style.display = 'flex'; }
 function hideLogin(){ $('login').style.display = 'none'; }
 
-function phoneToken(){
-  try { return localStorage.getItem('tpsess') || null; } catch(e){ return null; }
-}
+// Session token lives in page memory (primary) + localStorage (backup).
+// The ?s= token stays in the URL so even a refresh works with cookies AND
+// localStorage both blocked.
+var PHONE_TOKEN = null;
+function phoneToken(){ return PHONE_TOKEN; }
 async function api(p, o){
   o = o || {};
-  var tok = phoneToken();
-  if (tok) { o.headers = o.headers || {}; o.headers['Authorization'] = 'Bearer ' + tok; }
+  if (PHONE_TOKEN) { o.headers = o.headers || {}; o.headers['Authorization'] = 'Bearer ' + PHONE_TOKEN; }
   var r = await fetch(p, o);
   if (r.status === 401){ showLogin(); throw new Error('unauth'); }
   return r.json();
@@ -614,16 +615,19 @@ function init(){
 }
 
 // boot: pick up the session token from the login redirect (?s=...) or from
-// localStorage (for browsers that won't persist cookies), then enter the chat.
+// localStorage. The token is kept in page memory and left in the URL, so the
+// chat works even when the browser blocks both cookies and localStorage.
 (function(){
   try {
     var m = /[?&]s=([a-f0-9]{64})/.exec(location.search);
     if (m) {
+      PHONE_TOKEN = m[1];
       try { localStorage.setItem('tpsess', m[1]); } catch(e){}
-      history.replaceState(null, '', '/');
+    } else {
+      try { PHONE_TOKEN = localStorage.getItem('tpsess'); } catch(e){}
     }
   } catch(e){}
-  if (phoneToken()) { hideLogin(); init(); }
+  if (PHONE_TOKEN) { hideLogin(); init(); }
   else { fetch('/api/status').then(function(r){ if (r.ok){ hideLogin(); init(); } }).catch(function(){}); }
 })();
 
