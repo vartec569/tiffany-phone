@@ -174,7 +174,37 @@ async function getMessages() {
             if (sl.indexOf('allow using this mcp tool') !== -1) return true;
             if (sl.indexOf('gemini ') === 0 && sl.length < 60) return true;
             if (sl.indexOf('claude ') === 0 && sl.length < 60) return true;
+            if (sl.indexOf('worked for ') === 0) return true;
             return false;
+        }
+        function cleanText(t) {
+            // Strip Antigravity's inline timestamps like "9:58 PM" and "Worked for 2m"
+            var NL = String.fromCharCode(10);
+            var lines = t.split(NL);
+            var out = [];
+            for (var i = 0; i < lines.length; i++) {
+                var ln = lines[i].trim();
+                var ll = ln.toLowerCase();
+                // skip "9:58 PM" style timestamps: [digits]:[digits] am/pm
+                var isTime = false;
+                if (ll.length >= 7 && ll.length <= 8) {
+                    var ap = ll.slice(-2);
+                    if (ap === 'am' || ap === 'pm') {
+                        var hm = ll.slice(0, -2).trim().split(':');
+                        if (hm.length === 2) {
+                            var hOk = true, mOk = true;
+                            for (var hi = 0; hi < hm[0].length; hi++) { var hc = hm[0].charAt(hi); if (hc < '0' || hc > '9') hOk = false; }
+                            for (var mi = 0; mi < hm[1].length; mi++) { var mc = hm[1].charAt(mi); if (mc < '0' || mc > '9') mOk = false; }
+                            if (hOk && mOk && hm[0].length > 0 && hm[1].length === 2) isTime = true;
+                        }
+                    }
+                }
+                if (isTime) continue;
+                // skip "Worked for 2m"
+                if (ll.indexOf('worked for ') === 0) continue;
+                out.push(lines[i]);
+            }
+            return out.join(NL).trim();
         }
         const messages = [];
         const statusItems = [];
@@ -184,13 +214,33 @@ async function getMessages() {
         while (el = walker.nextNode()) {
             if (el.querySelector && el.querySelector('[contenteditable="true"]')) continue;
             if (el.hasAttribute && el.hasAttribute('contenteditable')) continue;
-            const text = (el.innerText || '').trim();
+            var rawText = (el.innerText || '').trim();
+            var text = cleanText(rawText);
             if (text.length > 10 && text.length < 5000 && el.children.length <= 3) {
                 if (isChrome(text)) continue;
                 let p = el.parentElement, dup = false;
                 while (p && p !== container) { if (seen.has(p)) { dup = true; break; } p = p.parentElement; }
                 if (!dup) {
                     seen.add(el);
+                    // Split merged user+AI: short first line + long rest
+                    var NL2 = String.fromCharCode(10);
+                    var parts = text.split(NL2 + NL2);
+                    if (parts.length >= 2) {
+                        var first = parts[0].trim();
+                        var rest = parts.slice(1).join(NL2 + NL2).trim();
+                        if (first.length > 0 && first.length < 80 && rest.length > 100 && first.indexOf(' ') !== -1) {
+                            // likely user message + AI answer merged
+                            if (!isChrome(first) && !isStatus(first)) {
+                                messages.push({ role: 'user', text: first.substring(0, 2000) });
+                            }
+                            if (!isChrome(rest) && !isStatus(rest)) {
+                                messages.push({ role: 'ai', text: rest.substring(0, 2000) });
+                            } else if (isStatus(rest)) {
+                                statusItems.push({ role: 'ai', text: rest.substring(0, 2000) });
+                            }
+                            continue;
+                        }
+                    }
                     var item = { role: detectRole(el), text: text.substring(0, 2000) };
                     if (isStatus(text)) statusItems.push(item);
                     else messages.push(item);
