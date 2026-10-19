@@ -2,7 +2,7 @@
 // Davin-approved final build. Plain HTTP :3001. Real CDP backend only — no fake replies.
 const http = require('http');
 const crypto = require('crypto');
-const { WebSocket } = require('ws');
+const { WebSocket, WebSocketServer } = require('ws');
 
 // Never die on a stray async error — log it and keep serving.
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e && e.message); });
@@ -125,20 +125,28 @@ async function getMessages() {
         }
         function isNoise(t) {
             var sl = t.trim().toLowerCase();
-            // exact single-word status crumbs
-            if (sl === 'analyzed' || sl === 'searched' || sl === 'working' || sl === 'working.'
-                || sl === 'thinking' || sl === 'thinking.' || sl === 'mcp error') return true;
-            // individual agent status lines: "analyzed <file>", "searched <term>", "thought for 1s"
-            if (sl.indexOf('analyzed ') === 0) return true;
-            if (sl.indexOf('searched ') === 0) return true;
-            if (sl.indexOf('thought for ') === 0) return true;
-            if (sl.indexOf('exploring ') === 0) return true;
+            var NL = String.fromCharCode(10);
+            // helper: starts with a status word (followed by space, newline, or end)
+            function startsWord(s, w) {
+                if (s.indexOf(w) !== 0) return false;
+                var c = s.charAt(w.length);
+                return c === '' || c === ' ' || c === NL || c === String.fromCharCode(9);
+            }
+            // agent status lines: "analyzed", "analyzed <file>", "searched ...", etc.
+            if (startsWord(sl, 'analyzed')) return true;
+            if (startsWord(sl, 'searched')) return true;
+            if (startsWord(sl, 'thought for')) return true;
+            if (startsWord(sl, 'exploring')) return true;
+            if (startsWord(sl, 'working')) return true;
+            if (startsWord(sl, 'thinking')) return true;
+            if (sl === 'mcp error') return true;
             // UI chrome
             if (sl.indexOf('review changes') !== -1) return true;
             if (sl.indexOf('files with changes') !== -1) return true;
             if (sl.indexOf('queued messages') !== -1) return true;
             if (sl.indexOf('ask anything, @ to mention') !== -1) return true;
             if (sl.indexOf('sends after agent finishes working') !== -1) return true;
+            if (sl.indexOf('allow using this mcp tool') !== -1) return true;
             // agent working-status blocks: contain search/analyze activity
             var hasSearched = sl.indexOf('searched') !== -1;
             var hasAnalyzed = sl.indexOf('analyzed') !== -1;
@@ -647,6 +655,45 @@ function init(){
   });
 }
 
+var wsConn = null;
+function onWsMessages(messages){
+  var now = Date.now();
+  var serverUserTexts = {};
+  messages.forEach(function(m){ if (m.role === 'user') serverUserTexts[m.text] = 1; });
+  pendingOwn = pendingOwn.filter(function(p){ return !serverUserTexts[p.text] && (now - p.ts < 30000); });
+  var items = messages.map(function(m){
+    var k = m.role + '|' + m.text;
+    if (!seenTs[k]) seenTs[k] = now;
+    return { role: m.role, text: m.text, ts: seenTs[k] };
+  });
+  pendingOwn.forEach(function(p){ items.push({ role:'user', text:p.text, ts:p.ts }); });
+  var key = items.map(function(x){ return x.role + ':' + x.text; }).join('\\n');
+  var changed = (lastKey !== key);
+  var wasFirst = firstLoad;
+  lastKey = key; firstLoad = false;
+  if (!changed && !wasFirst) return;
+  renderMsgs(items);
+  if (wasFirst){ jumpBottom(); return; }
+  maybeAutoScroll();
+  if (processing && countAi(items) > aiCountAtSend){ onDone(); }
+}
+function connectWS(){
+  try {
+    if (wsConn) { try { wsConn.close(); } catch(e){} wsConn = null; }
+    if (!PHONE_TOKEN) { setTimeout(connectWS, 2000); return; }
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsConn = new WebSocket(proto + '//' + location.host + '/ws?token=' + encodeURIComponent(PHONE_TOKEN));
+    wsConn.onmessage = function(ev){
+      try {
+        var d = JSON.parse(ev.data);
+        if (d && d.type === 'messages' && d.messages) onWsMessages(d.messages);
+      } catch(e){}
+    };
+    wsConn.onclose = function(){ wsConn = null; setTimeout(connectWS, 2000); };
+    wsConn.onerror = function(){ try { wsConn.close(); } catch(e){} };
+  } catch(e){ setTimeout(connectWS, 2000); }
+}
+
 // boot: pick up the session token from the login redirect (?s=...) or from
 // localStorage. The token is kept in page memory and left in the URL, so the
 // chat works even when the browser blocks both cookies and localStorage.
@@ -757,6 +804,55 @@ const server = http.createServer((req, res) => {
 // Need 'ws' module
 try { require.resolve('ws'); }
 catch (e) { console.error('Run: npm install ws'); process.exit(1); }
+
+// ============ WEBSOCKET PUSH (real-time message updates) ============
+const wss = new WebSocketServer({ noServer: true });
+const wsClients = new Set();
+
+server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url, 'http://x');
+    if (url.pathname !== '/ws') { socket.destroy(); return; }
+    const tok = url.searchParams.get('token') || '';
+    if (!verifyToken(tok)) { socket.destroy(); return; }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+        wsClients.add(ws);
+        ws.on('close', () => wsClients.delete(ws));
+        ws.on('error', () => wsClients.delete(ws));
+        // send current messages immediately on connect
+        pushMessagesTo(ws).catch(() => {});
+    });
+});
+
+async function pushMessagesTo(ws) {
+    try {
+        const d = await getMessages();
+        if (d && !d.error && d.messages && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'messages', messages: d.messages }));
+        }
+    } catch (e) {}
+}
+
+function broadcastMessages(messages) {
+    const payload = JSON.stringify({ type: 'messages', messages });
+    for (const ws of wsClients) {
+        if (ws.readyState === 1) { try { ws.send(payload); } catch (e) {} }
+    }
+}
+
+let lastPushedKey = '';
+async function watchMessages() {
+    if (!cdpConnected() || wsClients.size === 0) return;
+    try {
+        const d = await getMessages();
+        if (!d || d.error || !d.messages) return;
+        const key = d.messages.map(m => m.role + '|' + (m.text || '').slice(0, 100)).join('\n');
+        if (key !== lastPushedKey) {
+            lastPushedKey = key;
+            broadcastMessages(d.messages);
+        }
+    } catch (e) {}
+}
+setInterval(watchMessages, 800);
 
 server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Tiffany Phone v2 running on http://0.0.0.0:${PORT}`);
