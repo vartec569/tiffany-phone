@@ -610,7 +610,9 @@ const server = http.createServer(async (req, res) => {
             } else {
                 ({ pw } = await readJsonBody(req));
             }
-            if (pw === APP_PASSWORD) {
+            const pwNorm = String(pw || '').trim();
+            const appPwNorm = String(APP_PASSWORD || '').trim();
+            if (pwNorm !== '' && pwNorm === appPwNorm) {
                 const t = makeToken();
                 const cookie = `tpsess=${t}; HttpOnly; Path=/; Max-Age=86400`;
                 if (isForm) {
