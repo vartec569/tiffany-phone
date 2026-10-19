@@ -423,10 +423,12 @@ async function api(p, o){
   return r.json();
 }
 async function doLogin(){
-  var pw = $('pw').value;
-  var r = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pw:pw})});
-  if (r.ok){ hideLogin(); init(); }
-  else toast('Password salah');
+  try {
+    var pw = $('pw').value;
+    var r = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pw:pw})});
+    if (r.ok){ hideLogin(); init(); }
+    else toast('Password salah');
+  } catch(e){ toast('Koneksi gagal, coba lagi'); }
 }
 
 function setBanner(show){ $('banner').classList.toggle('show', !!show); }
@@ -577,7 +579,7 @@ function init(){
     if (dd.classList.contains('show') && !e.target.closest('#inputBox')) dd.classList.remove('show');
   });
 }
-$('pw').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
+$('pw').addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); doLogin(); } });
 </script></body></html>`;
 
 // ============ HTTP SERVER ============
