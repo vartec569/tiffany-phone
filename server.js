@@ -147,9 +147,10 @@ async function getMessages() {
             if (sl.indexOf('ask anything, @ to mention') !== -1) return true;
             if (sl.indexOf('sends after agent finishes working') !== -1) return true;
             if (sl.indexOf('allow using this mcp tool') !== -1) return true;
-            // bare file refs: "output.txt#L1-6", "mainmarket.lua#L800-850" (analyzed results)
+            // bare file refs: "output.txt#L1-6", "mainmarket.lua#L800-850", "#L2400-2600"
             var hl2 = sl.indexOf('#l');
-            if (hl2 > 0 && sl.indexOf(' ') === -1) {
+            if (hl2 >= 0 && sl.indexOf(' ') === -1) {
+                if (hl2 === 0) return true; // starts with #L
                 var fp2 = sl.slice(0, hl2);
                 var lp2 = sl.slice(hl2 + 2);
                 if (fp2.indexOf('.') > 0 && lp2.length > 0) {
@@ -161,6 +162,9 @@ async function getMessages() {
                     if (ok2) return true;
                 }
             }
+            // MCP tool call blocks (agent internal, not chat)
+            if (sl.indexOf('mcp tool:') === 0) return true;
+            if (sl.indexOf('tool arguments') !== -1) return true;
             // agent working-status blocks: contain search/analyze activity
             var hasSearched = sl.indexOf('searched') !== -1;
             var hasAnalyzed = sl.indexOf('analyzed') !== -1;
