@@ -2,3 +2,4 @@ node_modules/
 .env
 .tp-pass
 .tp-token
+.tp-sessions
