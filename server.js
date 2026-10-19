@@ -2,8 +2,6 @@
 // Davin-approved final build. Plain HTTP :3001. Real CDP backend only — no fake replies.
 const http = require('http');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const { WebSocket } = require('ws');
 
 // Never die on a stray async error — log it and keep serving.
@@ -249,26 +247,31 @@ async function getCurrentModel() {
     return await cdpEval(js);
 }
 
-// ============ AUTH (phone UI): cookie session, persisted across restarts ============
-const SESS_FILE = path.join(__dirname, '.tp-sessions');
-const sessions = new Set();
-try {
-    const arr = JSON.parse(fs.readFileSync(SESS_FILE, 'utf8'));
-    if (Array.isArray(arr)) arr.forEach(t => { if (typeof t === 'string' && /^[a-f0-9]{64}$/.test(t)) sessions.add(t); });
-} catch (e) { /* first run */ }
-function saveSessions() {
-    try { fs.writeFileSync(SESS_FILE, JSON.stringify([...sessions])); } catch (e) {}
+// ============ AUTH (phone UI): stateless signed tokens ============
+// Token = <random64hex>.<hmac-sha256(random, APP_PASSWORD)>. The server never
+// stores sessions, so restarts and crashes can't log anyone out.
+function makeToken() {
+    const r = crypto.randomBytes(32).toString('hex');
+    const sig = crypto.createHmac('sha256', APP_PASSWORD).update(r).digest('hex');
+    return r + '.' + sig;
 }
-function makeToken() { const t = crypto.randomBytes(32).toString('hex'); sessions.add(t); saveSessions(); return t; }
+function verifyToken(tok) {
+    const m = /^([a-f0-9]{64})\.([a-f0-9]{64})$/.exec(tok || '');
+    if (!m) return false;
+    const expected = crypto.createHmac('sha256', APP_PASSWORD).update(m[1]).digest('hex');
+    try {
+        return crypto.timingSafeEqual(Buffer.from(m[2], 'hex'), Buffer.from(expected, 'hex'));
+    } catch (e) { return false; }
+}
 function checkAuth(req) {
     const cookie = req.headers.cookie || '';
-    const m = cookie.match(/tpsess=([a-f0-9]{64})/);
-    if (m && sessions.has(m[1])) return true;
+    const m = /tpsess=([a-f0-9]{64}\.[a-f0-9]{64})/.exec(cookie);
+    if (m && verifyToken(m[1])) return true;
     // Fallback for browsers that won't persist cookies: session token via
-    // Authorization header (phone UI stores it in localStorage after login).
+    // Authorization header (phone UI keeps it in page memory / URL).
     const ah = req.headers['authorization'] || '';
-    const b = /^Bearer ([a-f0-9]{64})$/.exec(ah);
-    if (b && sessions.has(b[1])) return true;
+    const b = /^Bearer ([a-f0-9]{64}\.[a-f0-9]{64})$/.exec(ah);
+    if (b && verifyToken(b[1])) return true;
     return false;
 }
 
@@ -619,7 +622,7 @@ function init(){
 // chat works even when the browser blocks both cookies and localStorage.
 (function(){
   try {
-    var m = /[?&]s=([a-f0-9]{64})/.exec(location.search);
+    var m = /[?&]s=([a-f0-9]{64}\.[a-f0-9]{64})/.exec(location.search);
     if (m) {
       PHONE_TOKEN = m[1];
       try { localStorage.setItem('tpsess', m[1]); } catch(e){}
