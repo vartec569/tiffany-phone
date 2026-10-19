@@ -125,9 +125,26 @@ async function getMessages() {
         }
         function isNoise(t) {
             var sl = t.trim().toLowerCase();
-            // minimal: only exact single-word status crumbs
-            return sl === 'analyzed' || sl === 'searched' || sl === 'working' || sl === 'working.'
-                || sl === 'thinking' || sl === 'thinking.' || sl === 'mcp error';
+            // exact single-word status crumbs
+            if (sl === 'analyzed' || sl === 'searched' || sl === 'working' || sl === 'working.'
+                || sl === 'thinking' || sl === 'thinking.' || sl === 'mcp error') return true;
+            // UI chrome
+            if (sl.indexOf('review changes') !== -1) return true;
+            if (sl.indexOf('files with changes') !== -1) return true;
+            if (sl.indexOf('queued messages') !== -1) return true;
+            if (sl.indexOf('ask anything, @ to mention') !== -1) return true;
+            if (sl.indexOf('sends after agent finishes working') !== -1) return true;
+            // agent working-status blocks: contain search/analyze activity
+            var hasSearched = sl.indexOf('searched') !== -1;
+            var hasAnalyzed = sl.indexOf('analyzed') !== -1;
+            var hasThought = sl.indexOf('thought for') !== -1;
+            var hasExploring = sl.indexOf('exploring ') !== -1;
+            var activityCount = (hasSearched ? 1 : 0) + (hasAnalyzed ? 1 : 0) + (hasThought ? 1 : 0) + (hasExploring ? 1 : 0);
+            if (activityCount >= 2) return true;
+            // model picker label leaking in as a message
+            if (sl.indexOf('gemini ') === 0 && sl.length < 60) return true;
+            if (sl.indexOf('claude ') === 0 && sl.length < 60) return true;
+            return false;
         }
         const messages = [];
         const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT);
