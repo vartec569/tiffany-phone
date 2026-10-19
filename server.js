@@ -2,7 +2,13 @@
 // Davin-approved final build. Plain HTTP :3001. Real CDP backend only — no fake replies.
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { WebSocket } = require('ws');
+
+// Never die on a stray async error — log it and keep serving.
+process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e && e.message); });
+process.on('uncaughtException', (e) => { console.error('[uncaughtException]', e && e.message); });
 
 // ============ CONFIG (secrets ONLY from env — never hardcode, never log) ============
 const PORT = process.env.PORT || 3001;
@@ -243,9 +249,17 @@ async function getCurrentModel() {
     return await cdpEval(js);
 }
 
-// ============ AUTH (phone UI): cookie session ============
+// ============ AUTH (phone UI): cookie session, persisted across restarts ============
+const SESS_FILE = path.join(__dirname, '.tp-sessions');
 const sessions = new Set();
-function makeToken() { const t = crypto.randomBytes(32).toString('hex'); sessions.add(t); return t; }
+try {
+    const arr = JSON.parse(fs.readFileSync(SESS_FILE, 'utf8'));
+    if (Array.isArray(arr)) arr.forEach(t => { if (typeof t === 'string' && /^[a-f0-9]{64}$/.test(t)) sessions.add(t); });
+} catch (e) { /* first run */ }
+function saveSessions() {
+    try { fs.writeFileSync(SESS_FILE, JSON.stringify([...sessions])); } catch (e) {}
+}
+function makeToken() { const t = crypto.randomBytes(32).toString('hex'); sessions.add(t); saveSessions(); return t; }
 function checkAuth(req) {
     const cookie = req.headers.cookie || '';
     const m = cookie.match(/tpsess=([a-f0-9]{64})/);
@@ -594,7 +608,7 @@ fetch('/api/status').then(function(r){ if (r.ok){ hideLogin(); init(); } }).catc
 </script></body></html>`;
 
 // ============ HTTP SERVER ============
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
     const url = new URL(req.url, 'http://x');
 
     // Tiffany machine API first — own Bearer auth, before cookie auth
@@ -670,6 +684,13 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
         res.end(JSON.stringify({ error: e.message }));
     }
+}
+
+const server = http.createServer((req, res) => {
+    handleRequest(req, res).catch(e => {
+        console.error('[request-error]', e && e.message);
+        if (!res.headersSent) { try { res.writeHead(500); res.end('{}'); } catch (_) {} }
+    });
 });
 
 // Need 'ws' module
