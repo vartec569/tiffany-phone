@@ -263,7 +263,13 @@ function makeToken() { const t = crypto.randomBytes(32).toString('hex'); session
 function checkAuth(req) {
     const cookie = req.headers.cookie || '';
     const m = cookie.match(/tpsess=([a-f0-9]{64})/);
-    return m && sessions.has(m[1]);
+    if (m && sessions.has(m[1])) return true;
+    // Fallback for browsers that won't persist cookies: session token via
+    // Authorization header (phone UI stores it in localStorage after login).
+    const ah = req.headers['authorization'] || '';
+    const b = /^Bearer ([a-f0-9]{64})$/.exec(ah);
+    if (b && sessions.has(b[1])) return true;
+    return false;
 }
 
 // ============ TIFFANY API (machine access via Tailscale, Bearer token) ============
@@ -438,8 +444,13 @@ function toast(msg){
 function showLogin(){ $('login').style.display = 'flex'; }
 function hideLogin(){ $('login').style.display = 'none'; }
 
+function phoneToken(){
+  try { return localStorage.getItem('tpsess') || null; } catch(e){ return null; }
+}
 async function api(p, o){
   o = o || {};
+  var tok = phoneToken();
+  if (tok) { o.headers = o.headers || {}; o.headers['Authorization'] = 'Bearer ' + tok; }
   var r = await fetch(p, o);
   if (r.status === 401){ showLogin(); throw new Error('unauth'); }
   return r.json();
@@ -602,8 +613,19 @@ function init(){
   });
 }
 
-// boot: skip the login screen when a valid session cookie already exists
-fetch('/api/status').then(function(r){ if (r.ok){ hideLogin(); init(); } }).catch(function(){});
+// boot: pick up the session token from the login redirect (?s=...) or from
+// localStorage (for browsers that won't persist cookies), then enter the chat.
+(function(){
+  try {
+    var m = /[?&]s=([a-f0-9]{64})/.exec(location.search);
+    if (m) {
+      try { localStorage.setItem('tpsess', m[1]); } catch(e){}
+      history.replaceState(null, '', '/');
+    }
+  } catch(e){}
+  if (phoneToken()) { hideLogin(); init(); }
+  else { fetch('/api/status').then(function(r){ if (r.ok){ hideLogin(); init(); } }).catch(function(){}); }
+})();
 
 </script></body></html>`;
 
@@ -630,7 +652,9 @@ async function handleRequest(req, res) {
                 const t = makeToken();
                 const cookie = `tpsess=${t}; HttpOnly; Path=/; Max-Age=86400`;
                 if (isForm) {
-                    res.writeHead(302, { 'Set-Cookie': cookie, 'Location': '/' });
+                    // Pass the token in the URL too — some mobile browsers won't
+                    // persist the cookie, and the page picks it up from there.
+                    res.writeHead(302, { 'Set-Cookie': cookie, 'Location': '/?s=' + t });
                     res.end();
                 } else {
                     res.writeHead(200, { 'Set-Cookie': cookie, 'Content-Type': 'application/json' });
