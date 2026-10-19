@@ -431,13 +431,15 @@ function renderText(t){
   var BT = String.fromCharCode(96);
   var e = esc(t);
   var fenceRe = new RegExp(BT+BT+BT+'(\\w*)\\n?([\\s\\S]*?)'+BT+BT+BT, 'g');
+  var NL = String.fromCharCode(10);
   e = e.replace(fenceRe, function(m0,lang,code){
-    code = code.replace(/^\n+|\n+$/g,'');
+    while (code.charAt(0) === NL) code = code.slice(1);
+    while (code.slice(-1) === NL) code = code.slice(0,-1);
     return '<pre><code>'+code+'</code></pre>';
   });
   var inlineRe = new RegExp(BT+'([^'+BT+'\\n]+)'+BT, 'g');
   e = e.replace(inlineRe,'<code>$1</code>');
-  e = e.replace(/\n/g,'<br>');
+  e = e.split(NL).join('<br>');
   return e;
 }
 function toast(msg){
@@ -622,7 +624,7 @@ function init(){
 // chat works even when the browser blocks both cookies and localStorage.
 (function(){
   try {
-    var m = /[?&]s=([a-f0-9]{64}\.[a-f0-9]{64})/.exec(location.search);
+    var m = /[?&]s=([a-f0-9]{64}[.][a-f0-9]{64})/.exec(location.search);
     if (m) {
       PHONE_TOKEN = m[1];
       try { localStorage.setItem('tpsess', m[1]); } catch(e){}
