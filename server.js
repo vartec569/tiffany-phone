@@ -356,7 +356,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 #modelDrop button{display:flex;width:100%;background:none;border:none;color:#eee;font-size:14px;padding:13px 14px;text-align:left;justify-content:space-between;align-items:center}
 #modelDrop button:active{background:#2c2c2e}
 #modelDrop .chk{color:#4ade80;font-size:14px}
-#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:120px;background:#1c1c1e;border:1px solid #3a3a3c;color:#eee;font-size:13px;padding:10px 18px;border-radius:20px;display:none;z-index:50;white-space:nowrap}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:120px;background:#1c1c1e;border:1px solid #3a3a3c;color:#eee;font-size:13px;padding:10px 18px;border-radius:20px;display:none;z-index:200;white-space:nowrap}
+#login form{margin:0}
 #toast.show{display:block}
 #login{position:fixed;inset:0;background:#0e1621;display:flex;align-items:center;justify-content:center;z-index:99;padding:20px}
 #login .card{background:#182533;padding:32px 28px;border-radius:18px;text-align:center;width:100%;max-width:300px}
@@ -366,7 +367,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 #login input:focus{border-color:#0e639c}
 #login button{background:#0e639c;border:none;color:#fff;padding:12px 0;border-radius:10px;font-size:16px;cursor:pointer;width:100%}
 </style></head><body>
-<div id="login"><div class="card"><h2>Tiffany Phone</h2><p>Masukkan password</p><input type="password" id="pw" placeholder="Password" autocomplete="off"><button onclick="doLogin()">Masuk</button></div></div>
+<div id="login"><div class="card"><h2>Tiffany Phone</h2><p>Masukkan password</p><form onsubmit="doLogin();return false;"><input type="password" id="pw" placeholder="Password" autocomplete="off"><button type="submit">Masuk</button></form></div></div>
 <div id="banner">Antigravity not connected &mdash; buka Antigravity dengan --remote-debugging-port=9000</div>
 <div id="msgs"></div>
 <button id="jumpNew" onclick="jumpBottom()">Pesan baru &darr;</button>
