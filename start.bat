@@ -14,7 +14,7 @@ if "%APP_PASSWORD%"=="" (
 )
 
 if "%TIFFANY_TOKEN%"=="" (
-    set /p TIFFANY_TOKEN=Masukkan token Tiffany (kosongkan = API Tiffany nonaktif):
+    set /p TIFFANY_TOKEN=Masukkan token Tiffany [kosongkan = API nonaktif]:
 )
 
 echo.
