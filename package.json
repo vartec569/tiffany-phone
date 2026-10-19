@@ -1,0 +1,1 @@
+{"dependencies":{"ws":"^8.18.0"},"description":"Tiffany Phone v2 - custom Antigravity remote control for Davin (Option A Minimal UI + Tiffany Bearer-token API)","main":"server.js","name":"tiffany-phone","version":"2.0.0"}
