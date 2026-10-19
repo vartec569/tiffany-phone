@@ -123,16 +123,15 @@ async function getMessages() {
             } catch (e) {}
             return su > sa ? 'user' : 'ai';
         }
-        function isNoise(t) {
+        function isStatus(t) {
+            // Agent working status: show separately (not in bubble, not hidden)
             var sl = t.trim().toLowerCase();
             var NL = String.fromCharCode(10);
-            // helper: starts with a status word (followed by space, newline, or end)
             function startsWord(s, w) {
                 if (s.indexOf(w) !== 0) return false;
                 var c = s.charAt(w.length);
                 return c === '' || c === ' ' || c === NL || c === String.fromCharCode(9);
             }
-            // agent status lines: "analyzed", "analyzed <file>", "searched ...", etc.
             if (startsWord(sl, 'analyzed')) return true;
             if (startsWord(sl, 'searched')) return true;
             if (startsWord(sl, 'thought for')) return true;
@@ -140,17 +139,11 @@ async function getMessages() {
             if (startsWord(sl, 'working')) return true;
             if (startsWord(sl, 'thinking')) return true;
             if (sl === 'mcp error') return true;
-            // UI chrome
-            if (sl.indexOf('review changes') !== -1) return true;
-            if (sl.indexOf('files with changes') !== -1) return true;
-            if (sl.indexOf('queued messages') !== -1) return true;
-            if (sl.indexOf('ask anything, @ to mention') !== -1) return true;
-            if (sl.indexOf('sends after agent finishes working') !== -1) return true;
-            if (sl.indexOf('allow using this mcp tool') !== -1) return true;
-            // bare file refs: "output.txt#L1-6", "mainmarket.lua#L800-850", "#L2400-2600"
+            if (sl.indexOf('mcp tool:') === 0) return true;
+            if (sl.indexOf('tool arguments') !== -1) return true;
             var hl2 = sl.indexOf('#l');
             if (hl2 >= 0 && sl.indexOf(' ') === -1) {
-                if (hl2 === 0) return true; // starts with #L
+                if (hl2 === 0) return true;
                 var fp2 = sl.slice(0, hl2);
                 var lp2 = sl.slice(hl2 + 2);
                 if (fp2.indexOf('.') > 0 && lp2.length > 0) {
@@ -162,22 +155,29 @@ async function getMessages() {
                     if (ok2) return true;
                 }
             }
-            // MCP tool call blocks (agent internal, not chat)
-            if (sl.indexOf('mcp tool:') === 0) return true;
-            if (sl.indexOf('tool arguments') !== -1) return true;
-            // agent working-status blocks: contain search/analyze activity
             var hasSearched = sl.indexOf('searched') !== -1;
             var hasAnalyzed = sl.indexOf('analyzed') !== -1;
             var hasThought = sl.indexOf('thought for') !== -1;
             var hasExploring = sl.indexOf('exploring ') !== -1;
             var activityCount = (hasSearched ? 1 : 0) + (hasAnalyzed ? 1 : 0) + (hasThought ? 1 : 0) + (hasExploring ? 1 : 0);
             if (activityCount >= 2) return true;
-            // model picker label leaking in as a message
+            return false;
+        }
+        function isChrome(t) {
+            // UI chrome: hide completely
+            var sl = t.trim().toLowerCase();
+            if (sl.indexOf('review changes') !== -1) return true;
+            if (sl.indexOf('files with changes') !== -1) return true;
+            if (sl.indexOf('queued messages') !== -1) return true;
+            if (sl.indexOf('ask anything, @ to mention') !== -1) return true;
+            if (sl.indexOf('sends after agent finishes working') !== -1) return true;
+            if (sl.indexOf('allow using this mcp tool') !== -1) return true;
             if (sl.indexOf('gemini ') === 0 && sl.length < 60) return true;
             if (sl.indexOf('claude ') === 0 && sl.length < 60) return true;
             return false;
         }
         const messages = [];
+        const statusItems = [];
         const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT);
         const seen = new Set();
         let el;
@@ -185,14 +185,20 @@ async function getMessages() {
             if (el.querySelector && el.querySelector('[contenteditable="true"]')) continue;
             if (el.hasAttribute && el.hasAttribute('contenteditable')) continue;
             const text = (el.innerText || '').trim();
-            if (text.length > 10 && text.length < 5000 && el.children.length <= 3 && !isNoise(text)) {
+            if (text.length > 10 && text.length < 5000 && el.children.length <= 3) {
+                if (isChrome(text)) continue;
                 let p = el.parentElement, dup = false;
                 while (p && p !== container) { if (seen.has(p)) { dup = true; break; } p = p.parentElement; }
-                if (!dup) { seen.add(el); messages.push({ role: detectRole(el), text: text.substring(0, 2000) }); }
+                if (!dup) {
+                    seen.add(el);
+                    var item = { role: detectRole(el), text: text.substring(0, 2000) };
+                    if (isStatus(text)) statusItems.push(item);
+                    else messages.push(item);
+                }
             }
             if (messages.length > 100) break;
         }
-        return { messages: messages.slice(-50) };
+        return { messages: messages.slice(-50), status: statusItems.slice(-30) };
     })()`;
     return await cdpEval(js);
 }
@@ -424,6 +430,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .bubble.typing span:nth-child(2){animation-delay:.2s}
 .bubble.typing span:nth-child(3){animation-delay:.4s}
 @keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
+.status-block{align-self:flex-start;max-width:82%;margin:2px 0}
+.status-line{font-size:12px;color:#6b7a8d;line-height:1.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #jumpNew{position:fixed;left:50%;transform:translateX(-50%);bottom:118px;background:#1c1c1e;border:1px solid #3a3a3c;color:#eee;font-size:12px;padding:8px 16px;border-radius:18px;display:none;z-index:30}
 #jumpNew.show{display:block}
 #inputWrap{padding:8px 10px calc(10px + env(safe-area-inset-bottom));background:#0e1621}
@@ -470,6 +478,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 var FALLBACK_MODELS = ['Gemini 3.8 Flash High','Gemini 3.8 Pro','Claude Sonnet 4.6','Gemini 3.8 Flash Lite'];
 var seenTs = {};
 var lastKey = '';
+var lastSKey = '';
 var processing = false;
 var pendingOwn = [];
 var stopTimer = null;
@@ -532,13 +541,20 @@ async function loadStatus(){
 
 function countAi(items){ var n=0; items.forEach(function(x){ if(x.role==='ai') n++; }); return n; }
 
-function renderMsgs(items){
+function renderMsgs(items, statusItems){
   lastItems = items;
   var box = $('msgs');
   var html = '';
   items.forEach(function(x){
     html += '<div class="bubble '+x.role+'">'+renderText(x.text)+'<span class="ts">'+fmtT(x.ts)+'</span></div>';
   });
+  if (statusItems && statusItems.length > 0) {
+    html += '<div class="status-block">';
+    statusItems.forEach(function(s){
+      html += '<div class="status-line">'+esc(s.text)+'</div>';
+    });
+    html += '</div>';
+  }
   if (processing) html += '<div class="bubble ai typing"><span></span><span></span><span></span></div>';
   box.innerHTML = html;
 }
@@ -563,12 +579,14 @@ async function loadMsgs(){
     return { role: m.role, text: m.text, ts: seenTs[k] };
   });
   pendingOwn.forEach(function(p){ items.push({ role:'user', text:p.text, ts:p.ts }); });
+  var statusItems = (d.status || []).map(function(s){ return { text: s.text }; });
   var key = items.map(function(x){ return x.role + ':' + x.text; }).join('\\n');
-  var changed = (lastKey !== key);
+  var skey = statusItems.map(function(s){ return s.text; }).join('\\n');
+  var changed = (lastKey !== key) || (lastSKey !== skey);
   var wasFirst = firstLoad;
-  lastKey = key; firstLoad = false;
+  lastKey = key; lastSKey = skey; firstLoad = false;
   if (!changed && !wasFirst) return; // skip re-render -> no scroll jitter
-  renderMsgs(items);
+  renderMsgs(items, statusItems);
   if (wasFirst){ jumpBottom(); return; }
   maybeAutoScroll();
   if (processing && countAi(items) > aiCountAtSend){ onDone(); }
