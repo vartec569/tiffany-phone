@@ -271,6 +271,14 @@ function readJsonBody(req) {
         req.on('error', reject);
     });
 }
+function readTextBody(req) {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        req.on('data', c => { body += c; if (body.length > 200000) req.destroy(); });
+        req.on('end', () => resolve(body));
+        req.on('error', reject);
+    });
+}
 async function handleTiffany(req, res, url) {
     res.setHeader('Content-Type', 'application/json');
     if (!checkTiffany(req)) { res.writeHead(401); res.end('{"error":"unauthorized"}'); return; }
@@ -367,7 +375,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 #login input:focus{border-color:#0e639c}
 #login button{background:#0e639c;border:none;color:#fff;padding:12px 0;border-radius:10px;font-size:16px;cursor:pointer;width:100%}
 </style></head><body>
-<div id="login"><div class="card"><h2>Tiffany Phone</h2><p>Masukkan password</p><form onsubmit="doLogin();return false;"><input type="password" id="pw" placeholder="Password" autocomplete="off"><button type="submit">Masuk</button></form></div></div>
+<div id="login"><div class="card"><h2>Tiffany Phone</h2><p>Masukkan password</p>__LOGIN_ERR__<form method="POST" action="/login"><input type="password" id="pw" name="pw" placeholder="Password" autocomplete="off"><button type="submit">Masuk</button></form></div></div>
 <div id="banner">Antigravity not connected &mdash; buka Antigravity dengan --remote-debugging-port=9000</div>
 <div id="msgs"></div>
 <button id="jumpNew" onclick="jumpBottom()">Pesan baru &darr;</button>
@@ -580,6 +588,9 @@ function init(){
   });
 }
 
+// boot: skip the login screen when a valid session cookie already exists
+fetch('/api/status').then(function(r){ if (r.ok){ hideLogin(); init(); } }).catch(function(){});
+
 </script></body></html>`;
 
 // ============ HTTP SERVER ============
@@ -591,22 +602,42 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/login' && req.method === 'POST') {
         try {
-            const { pw } = await readJsonBody(req);
+            const ctype = String(req.headers['content-type'] || '');
+            const isForm = ctype.includes('application/x-www-form-urlencoded');
+            let pw;
+            if (isForm) {
+                pw = new URLSearchParams(await readTextBody(req)).get('pw');
+            } else {
+                ({ pw } = await readJsonBody(req));
+            }
             if (pw === APP_PASSWORD) {
                 const t = makeToken();
-                res.writeHead(200, { 'Set-Cookie': `tpsess=${t}; HttpOnly; Path=/; Max-Age=86400`, 'Content-Type': 'application/json' });
-                res.end('{"ok":true}');
+                const cookie = `tpsess=${t}; HttpOnly; Path=/; Max-Age=86400`;
+                if (isForm) {
+                    res.writeHead(302, { 'Set-Cookie': cookie, 'Location': '/' });
+                    res.end();
+                } else {
+                    res.writeHead(200, { 'Set-Cookie': cookie, 'Content-Type': 'application/json' });
+                    res.end('{"ok":true}');
+                }
             } else {
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end('{"error":"wrong password"}');
+                if (isForm) {
+                    res.writeHead(302, { 'Location': '/?err=wrong' });
+                    res.end();
+                } else {
+                    res.writeHead(401, { 'Content-Type': 'application/json' });
+                    res.end('{"error":"wrong password"}');
+                }
             }
         } catch (e) { res.writeHead(400); res.end('{}'); }
         return;
     }
 
     if (url.pathname === '/' || url.pathname === '/index.html') {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(HTML);
+        const errHtml = url.searchParams.get('err') === 'wrong'
+            ? '<p style="color:#ff8a8a;font-size:13px;margin:0 0 8px">Password salah, coba lagi</p>' : '';
+        res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
+        res.end(HTML.replace('__LOGIN_ERR__', errHtml));
         return;
     }
 
