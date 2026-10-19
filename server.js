@@ -124,44 +124,10 @@ async function getMessages() {
             return su > sa ? 'user' : 'ai';
         }
         function isNoise(t) {
-            var s = t.trim();
-            var sl = s.toLowerCase();
-            // exact status words
-            if (sl === 'analyzed' || sl === 'searched' || sl === 'working' || sl === 'working.'
-                || sl === 'thinking' || sl === 'thinking.' || sl === 'mcp error') return true;
-            // "thought for 1s", "thought for 12s"
-            if (sl.indexOf('thought for ') === 0) {
-                var numPart = sl.slice(11, -1);
-                if (sl.charAt(sl.length - 1) === 's' && numPart !== '' && String(Number(numPart)) === numPart) return true;
-            }
-            // "7 results", "1 result"
-            if (sl.charAt(sl.length - 1) === 's' || sl.slice(-6) === 'result') {
-                var sp = sl.split(' ');
-                if (sp.length === 2 && (sp[1] === 'result' || sp[1] === 'results') && String(Number(sp[0])) === sp[0]) return true;
-            }
-            if (sl.indexOf('exploring ') === 0 && sl.indexOf(' files') !== -1) return true;
-            if (sl.indexOf('review changes') !== -1) return true;
-            if (sl.indexOf('files with changes') !== -1) return true;
-            if (sl.indexOf('select model') === 0) return true;
-            // file:line crumbs like "mainmarket.lua#L795-870" (not real messages)
-            var hl = s.indexOf('#L');
-            if (hl < 0) hl = s.indexOf('#l');
-            if (hl > 0 && s.indexOf(' ') === -1 && s.indexOf('\n') === -1) {
-                var fpart = s.slice(0, hl);
-                var lpart = s.slice(hl + 2);
-                if (fpart.indexOf('.') > 0 && /^[0-9-]+$/.test(lpart)) return true;
-            }
-            // status blocks: dominated by agent activity crumbs
-            var crumbs = 0;
-            if (sl.indexOf('thought for ') !== -1) crumbs++;
-            if (sl.indexOf('analyzed') !== -1) crumbs++;
-            if (sl.indexOf('searched') !== -1) crumbs++;
-            if (sl.indexOf('working') !== -1) crumbs++;
-            if (sl.indexOf('exploring ') !== -1) crumbs++;
-            if (sl.indexOf('results') !== -1) crumbs++;
-            var nlines = s.split(String.fromCharCode(10)).length;
-            if (crumbs >= 3 && crumbs * 2 >= nlines) return true;
-            return false;
+            var sl = t.trim().toLowerCase();
+            // minimal: only exact single-word status crumbs
+            return sl === 'analyzed' || sl === 'searched' || sl === 'working' || sl === 'working.'
+                || sl === 'thinking' || sl === 'thinking.' || sl === 'mcp error';
         }
         const messages = [];
         const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT);
