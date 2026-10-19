@@ -9,17 +9,17 @@ if not exist node_modules (
     call npm install
 )
 
-REM Password & token disimpan di file lokal (.tp-pass / .tp-token) biar
-REM restart tidak perlu ketik ulang. Hapus file-nya kalau mau ganti.
+REM Password & token: dipakai dari file kalau ada (.tp-pass / .tp-token),
+REM kalau belum ada ditanya sekali lalu disimpan. Hapus file-nya untuk ganti.
 if "%APP_PASSWORD%"=="" (
     if exist ".tp-pass" (
         set /p APP_PASSWORD=<".tp-pass"
         echo (password tersimpan dipakai)
     ) else (
-        set /p APP_PASSWORD=Masukkan password HP [disimpan utk restart berikutnya]:
-        call :savevar APP_PASSWORD ".tp-pass"
+        set /p APP_PASSWORD=Masukkan password HP:
     )
 )
+if not "%APP_PASSWORD%"=="" echo %APP_PASSWORD%>.tp-pass
 
 if "%TIFFANY_TOKEN%"=="" (
     if exist ".tp-token" (
@@ -27,8 +27,14 @@ if "%TIFFANY_TOKEN%"=="" (
         echo (token Tiffany tersimpan dipakai)
     ) else (
         set /p TIFFANY_TOKEN=Masukkan token Tiffany [kosongkan = API nonaktif]:
-        if not "%TIFFANY_TOKEN%"=="" call :savevar TIFFANY_TOKEN ".tp-token"
     )
+)
+if not "%TIFFANY_TOKEN%"=="" echo %TIFFANY_TOKEN%>.tp-token
+
+if "%APP_PASSWORD%"=="" (
+    echo ERROR: password masih kosong. Tutup window ini, buka lagi, lalu ketik password.
+    pause
+    exit /b 1
 )
 
 echo.
@@ -39,12 +45,3 @@ call node server.js
 echo.
 echo [Server berhenti - kode: %errorlevel%]
 pause
-goto :eof
-
-:savevar
-REM %1 = nama variable, %2 = file target. Tulis value tanpa spasi ekstra.
-setlocal EnableDelayedExpansion
-set "_v=!%1!"
->"%2" echo(!_v!
-endlocal
-goto :eof
