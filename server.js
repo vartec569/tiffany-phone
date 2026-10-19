@@ -258,26 +258,34 @@ async function getDomStructure() {
     const js = `(() => {
         const container = document.getElementById('conversation');
         if (!container) return { error: 'no conversation element' };
-        function nodeInfo(el, depth) {
-            if (depth > 4) return null;
+        // Find the message list: #conversation .mx-auto.w-full > div
+        const listDiv = container.querySelector('.mx-auto.w-full > div');
+        if (!listDiv) return { error: 'message list not found' };
+        function nodeInfo(el, depth, maxDepth) {
+            if (depth > maxDepth) return null;
             const info = {
                 tag: el.tagName ? el.tagName.toLowerCase() : '?',
-                id: el.id || '',
-                cls: (el.className && typeof el.className === 'string') ? el.className.split(' ').slice(0, 3).join(' ') : '',
+                cls: (el.className && typeof el.className === 'string') ? el.className.split(' ').slice(0, 4).join(' ') : '',
                 textLen: (el.innerText || '').length,
+                textStart: (el.innerText || '').substring(0, 80).replace(/\\n/g, ' | '),
                 childCount: el.children ? el.children.length : 0
             };
-            if (depth < 4 && el.children && el.children.length > 0) {
+            if (depth < maxDepth && el.children && el.children.length > 0) {
                 info.children = [];
-                const max = Math.min(el.children.length, 8);
+                const max = Math.min(el.children.length, 6);
                 for (let i = 0; i < max; i++) {
-                    const c = nodeInfo(el.children[i], depth + 1);
+                    const c = nodeInfo(el.children[i], depth + 1, maxDepth);
                     if (c) info.children.push(c);
                 }
             }
             return info;
         }
-        return nodeInfo(container, 0);
+        // Dump each of the 5 messages (depth 2)
+        const result = { messageCount: listDiv.children.length, messages: [] };
+        for (let i = 0; i < listDiv.children.length; i++) {
+            result.messages.push(nodeInfo(listDiv.children[i], 0, 2));
+        }
+        return result;
     })()`;
     return await cdpEval(js);
 }
