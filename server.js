@@ -128,6 +128,11 @@ async function getMessages() {
             // exact single-word status crumbs
             if (sl === 'analyzed' || sl === 'searched' || sl === 'working' || sl === 'working.'
                 || sl === 'thinking' || sl === 'thinking.' || sl === 'mcp error') return true;
+            // individual agent status lines: "analyzed <file>", "searched <term>", "thought for 1s"
+            if (sl.indexOf('analyzed ') === 0) return true;
+            if (sl.indexOf('searched ') === 0) return true;
+            if (sl.indexOf('thought for ') === 0) return true;
+            if (sl.indexOf('exploring ') === 0) return true;
             // UI chrome
             if (sl.indexOf('review changes') !== -1) return true;
             if (sl.indexOf('files with changes') !== -1) return true;
@@ -629,7 +634,7 @@ function autogrow(){
 function init(){
   setBanner(false);
   loadStatus(); loadModels(); loadMsgs();
-  setInterval(loadMsgs, 3000);
+  setInterval(loadMsgs, 2000);
   setInterval(loadStatus, 8000);
   var ta = $('txt');
   ta.addEventListener('input', autogrow);
