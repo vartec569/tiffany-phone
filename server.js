@@ -101,30 +101,65 @@ function cdpConnected() { return !!(cdpWs && cdpWs.readyState === 1); }
 
 // Read messages as structured data with best-effort role detection.
 // NOTE: role heuristic is tuned blind — verify against Davin's real DOM on first live test.
+// ============ CHAT OPERATIONS ============
+
+// Read messages using Antigravity's real DOM structure (verified via dom-debug 2026-10-19).
+// Structure: #conversation .relative.flex.flex-col.gap-y-3 > div.flex.items-start
+//   > div.group > [0: user msg, 1: meta, 2: AI response]
 async function getMessages() {
     const js = `(() => {
         const container = document.getElementById('conversation');
         if (!container) return { error: 'no conversation element' };
-        function detectRole(el) {
-            let node = el, su = 0, sa = 0;
-            for (let d = 0; d < 6 && node; d++) {
-                const cn = (node.className && typeof node.className === 'string') ? node.className.toLowerCase() : '';
-                if (/(^|[^a-z])(user|human|sender)([^a-z]|$)/.test(cn)) su += 2;
-                if (/(^|[^a-z])(assistant|agent|model|bot)([^a-z]|$)/.test(cn)) sa += 2;
-                const dr = node.getAttribute ? (node.getAttribute('data-role') || '') : '';
-                if (/user/i.test(dr)) su += 3;
-                if (/assistant|model/i.test(dr)) sa += 3;
-                node = node.parentElement;
+        const list = container.querySelector('.relative.flex.flex-col.gap-y-3');
+        if (!list) return { error: 'message list not found' };
+        const messages = [];
+        const statusItems = [];
+        const blocks = list.querySelectorAll(':scope > div.flex.items-start');
+        for (const block of blocks) {
+            const group = block.firstElementChild;
+            if (!group || !group.children || group.children.length < 2) continue;
+            const userEl = group.children[0];
+            const aiEl = group.children.length >= 3 ? group.children[2] : null;
+            const userText = cleanText((userEl.innerText || '').trim());
+            if (userText.length > 0 && userText.length < 2000) {
+                if (!isChrome(userText)) messages.push({ role: 'user', text: userText.substring(0, 2000) });
             }
-            try {
-                const p = el.parentElement;
-                if (p) { const pcs = getComputedStyle(p); if (pcs.justifyContent === 'flex-end' || pcs.alignItems === 'flex-end') su += 1; }
-                if (getComputedStyle(el).marginLeft === 'auto') su += 1;
-            } catch (e) {}
-            return su > sa ? 'user' : 'ai';
+            if (aiEl) {
+                const aiText = cleanText((aiEl.innerText || '').trim());
+                if (aiText.length > 10 && aiText.length < 8000) {
+                    if (isChrome(aiText)) continue;
+                    if (isStatus(aiText)) statusItems.push({ role: 'ai', text: aiText.substring(0, 2000) });
+                    else messages.push({ role: 'ai', text: aiText.substring(0, 2000) });
+                }
+            }
+        }
+        function cleanText(t) {
+            var NL = String.fromCharCode(10);
+            var lines = t.split(NL);
+            var out = [];
+            for (var i = 0; i < lines.length; i++) {
+                var ln = lines[i].trim();
+                var ll = ln.toLowerCase();
+                var isTime = false;
+                if (ll.length >= 7 && ll.length <= 8) {
+                    var ap = ll.slice(-2);
+                    if (ap === 'am' || ap === 'pm') {
+                        var hm = ll.slice(0, -2).trim().split(':');
+                        if (hm.length === 2) {
+                            var hOk = true, mOk = true;
+                            for (var hi = 0; hi < hm[0].length; hi++) { var hc = hm[0].charAt(hi); if (hc < '0' || hc > '9') hOk = false; }
+                            for (var mi = 0; mi < hm[1].length; mi++) { var mc = hm[1].charAt(mi); if (mc < '0' || mc > '9') mOk = false; }
+                            if (hOk && mOk && hm[0].length > 0 && hm[1].length === 2) isTime = true;
+                        }
+                    }
+                }
+                if (isTime) continue;
+                if (ll.indexOf('worked for ') === 0) continue;
+                out.push(lines[i]);
+            }
+            return out.join(NL).trim();
         }
         function isStatus(t) {
-            // Agent working status: show separately (not in bubble, not hidden)
             var sl = t.trim().toLowerCase();
             var NL = String.fromCharCode(10);
             function startsWord(s, w) {
@@ -155,16 +190,9 @@ async function getMessages() {
                     if (ok2) return true;
                 }
             }
-            var hasSearched = sl.indexOf('searched') !== -1;
-            var hasAnalyzed = sl.indexOf('analyzed') !== -1;
-            var hasThought = sl.indexOf('thought for') !== -1;
-            var hasExploring = sl.indexOf('exploring ') !== -1;
-            var activityCount = (hasSearched ? 1 : 0) + (hasAnalyzed ? 1 : 0) + (hasThought ? 1 : 0) + (hasExploring ? 1 : 0);
-            if (activityCount >= 2) return true;
             return false;
         }
         function isChrome(t) {
-            // UI chrome: hide completely
             var sl = t.trim().toLowerCase();
             if (sl.indexOf('review changes') !== -1) return true;
             if (sl.indexOf('files with changes') !== -1) return true;
@@ -174,79 +202,7 @@ async function getMessages() {
             if (sl.indexOf('allow using this mcp tool') !== -1) return true;
             if (sl.indexOf('gemini ') === 0 && sl.length < 60) return true;
             if (sl.indexOf('claude ') === 0 && sl.length < 60) return true;
-            if (sl.indexOf('worked for ') === 0) return true;
             return false;
-        }
-        function cleanText(t) {
-            // Strip Antigravity's inline timestamps like "9:58 PM" and "Worked for 2m"
-            var NL = String.fromCharCode(10);
-            var lines = t.split(NL);
-            var out = [];
-            for (var i = 0; i < lines.length; i++) {
-                var ln = lines[i].trim();
-                var ll = ln.toLowerCase();
-                // skip "9:58 PM" style timestamps: [digits]:[digits] am/pm
-                var isTime = false;
-                if (ll.length >= 7 && ll.length <= 8) {
-                    var ap = ll.slice(-2);
-                    if (ap === 'am' || ap === 'pm') {
-                        var hm = ll.slice(0, -2).trim().split(':');
-                        if (hm.length === 2) {
-                            var hOk = true, mOk = true;
-                            for (var hi = 0; hi < hm[0].length; hi++) { var hc = hm[0].charAt(hi); if (hc < '0' || hc > '9') hOk = false; }
-                            for (var mi = 0; mi < hm[1].length; mi++) { var mc = hm[1].charAt(mi); if (mc < '0' || mc > '9') mOk = false; }
-                            if (hOk && mOk && hm[0].length > 0 && hm[1].length === 2) isTime = true;
-                        }
-                    }
-                }
-                if (isTime) continue;
-                // skip "Worked for 2m"
-                if (ll.indexOf('worked for ') === 0) continue;
-                out.push(lines[i]);
-            }
-            return out.join(NL).trim();
-        }
-        const messages = [];
-        const statusItems = [];
-        const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT);
-        const seen = new Set();
-        let el;
-        while (el = walker.nextNode()) {
-            if (el.querySelector && el.querySelector('[contenteditable="true"]')) continue;
-            if (el.hasAttribute && el.hasAttribute('contenteditable')) continue;
-            var rawText = (el.innerText || '').trim();
-            var text = cleanText(rawText);
-            if (text.length > 10 && text.length < 5000 && el.children.length <= 3) {
-                if (isChrome(text)) continue;
-                let p = el.parentElement, dup = false;
-                while (p && p !== container) { if (seen.has(p)) { dup = true; break; } p = p.parentElement; }
-                if (!dup) {
-                    seen.add(el);
-                    // Split merged user+AI: short first line + long rest
-                    var NL2 = String.fromCharCode(10);
-                    var parts = text.split(NL2 + NL2);
-                    if (parts.length >= 2) {
-                        var first = parts[0].trim();
-                        var rest = parts.slice(1).join(NL2 + NL2).trim();
-                        if (first.length > 0 && first.length < 80 && rest.length > 100 && first.indexOf(' ') !== -1) {
-                            // likely user message + AI answer merged
-                            if (!isChrome(first) && !isStatus(first)) {
-                                messages.push({ role: 'user', text: first.substring(0, 2000) });
-                            }
-                            if (!isChrome(rest) && !isStatus(rest)) {
-                                messages.push({ role: 'ai', text: rest.substring(0, 2000) });
-                            } else if (isStatus(rest)) {
-                                statusItems.push({ role: 'ai', text: rest.substring(0, 2000) });
-                            }
-                            continue;
-                        }
-                    }
-                    var item = { role: detectRole(el), text: text.substring(0, 2000) };
-                    if (isStatus(text)) statusItems.push(item);
-                    else messages.push(item);
-                }
-            }
-            if (messages.length > 100) break;
         }
         return { messages: messages.slice(-50), status: statusItems.slice(-30) };
     })()`;
