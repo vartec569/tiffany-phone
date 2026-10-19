@@ -253,6 +253,35 @@ async function getMessages() {
     return await cdpEval(js);
 }
 
+// Debug: dump DOM structure of the conversation (to understand Antigravity's layout)
+async function getDomStructure() {
+    const js = `(() => {
+        const container = document.getElementById('conversation');
+        if (!container) return { error: 'no conversation element' };
+        function nodeInfo(el, depth) {
+            if (depth > 4) return null;
+            const info = {
+                tag: el.tagName ? el.tagName.toLowerCase() : '?',
+                id: el.id || '',
+                cls: (el.className && typeof el.className === 'string') ? el.className.split(' ').slice(0, 3).join(' ') : '',
+                textLen: (el.innerText || '').length,
+                childCount: el.children ? el.children.length : 0
+            };
+            if (depth < 4 && el.children && el.children.length > 0) {
+                info.children = [];
+                const max = Math.min(el.children.length, 8);
+                for (let i = 0; i < max; i++) {
+                    const c = nodeInfo(el.children[i], depth + 1);
+                    if (c) info.children.push(c);
+                }
+            }
+            return info;
+        }
+        return nodeInfo(container, 0);
+    })()`;
+    return await cdpEval(js);
+}
+
 // Send a message via the input box
 async function sendMessage(text) {
     const safeText = JSON.stringify(text);
@@ -859,6 +888,8 @@ async function handleRequest(req, res) {
             res.end(JSON.stringify({ cdp: cdpConnected() }));
         } else if (url.pathname === '/api/messages') {
             res.end(JSON.stringify(await getMessages()));
+        } else if (url.pathname === '/api/dom-debug') {
+            res.end(JSON.stringify(await getDomStructure().catch(e => ({ error: e.message }))));
         } else if (url.pathname === '/api/send' && req.method === 'POST') {
             const body = await readJsonBody(req);
             const text = String(body.text || '').trim();
